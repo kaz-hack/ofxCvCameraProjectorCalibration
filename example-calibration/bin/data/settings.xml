@@ -9,8 +9,8 @@
 		<Num_boards_Projector>12</Num_boards_Projector>
 		<Num_boards_before_cleaning>8</Num_boards_before_cleaning>
 		<Num_boards_before_dynamic_proj>5</Num_boards_before_dynamic_proj>
-		<Max_reproj_error_Camera>0.2</Max_reproj_error_Camera>
-		<Max_reproj_error_Projector>0.6</Max_reproj_error_Projector>
+		<Max_reproj_error_Camera>1.0</Max_reproj_error_Camera>
+		<Max_reproj_error_Projector>1.0</Max_reproj_error_Projector>
 	</Boards_Params>
 	<Processing_Params>
 		<Circle_image_threshold>230</Circle_image_threshold>

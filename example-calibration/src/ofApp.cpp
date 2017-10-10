@@ -16,28 +16,39 @@ void ofApp::setup(){
     ofSetCircleResolution(30);
     ofBackground(0,0,0);
     
-	cam.initGrabber(640, 480);
+    //cameraの設定（argvで引数を渡す）
+    cam.setVerbose(true);
+    cam.setDeviceID(1);
+    cam.listDevices();
+    
+    //カメラ取得画像サイズの設定
+    //cam.initGrabber(640, 480);
+    cam.initGrabber(1280, 720);
+    int camW = cam.getWidth();
+    int camH = cam.getHeight();
+    printf("width:%d,height:%d \n",camW,camH);
+    
 	imitate(previous, cam);
 	imitate(diff, cam);
-    
+    //ディスプレイサイズ、プロジェクタ画像サイズにより変更
     screenRect.set(0,0,1280,800);
     projectorRect.set(1280,0,1280,800);
     
     camProjCalib.setup(projectorRect.width, projectorRect.height);
-    
     setupDefaultParams();
     setupGui();
     
 	lastTime = 0;
     bProjectorRefreshLock = true;
-    
     bLog = true;
     
+    //最初のキャリブレーション対象選択
+    //setState(CAMERA);
     setState(PROJECTOR_STATIC);
-    
     log() << "Calibration started at step : " << getCurrentStateString() << endl;
 }
 
+//適切な値は解像度などにより変更（in GUI）
 void ofApp::setupDefaultParams(){
     
     appParams.setName("Application");
@@ -49,8 +60,8 @@ void ofApp::setupDefaultParams(){
     boardsParams.add( numBoardsFinalProjector.set("Num boards Projector", 12, 6, 15) );
     boardsParams.add( numBoardsBeforeCleaning.set("Num boards before cleaning", 8, 5, 10) );
     boardsParams.add( numBoardsBeforeDynamicProjection.set("Num boards before dynamic proj", 5, 3, 10) );
-    boardsParams.add( maxReprojErrorCamera.set("Max reproj error Camera", 0.2, 0.1, 0.5) );
-    boardsParams.add( maxReprojErrorProjector.set("Max reproj error Projector", 0.6, 0.1, 1.0) );
+    boardsParams.add( maxReprojErrorCamera.set("Max reproj error Camera", 1.0, 0.5, 1.5) );
+    boardsParams.add( maxReprojErrorProjector.set("Max reproj error Projector", 1.0, 0.1, 1.0) );
     
     imageProcessingParams.setName("Processing Params");
     imageProcessingParams.add( circleDetectionThreshold.set("Circle image threshold", 220, 150, 255) );
@@ -89,9 +100,11 @@ void ofApp::setState(CalibState state){
             camProjCalib.resetBoards();
             break;
         case PROJECTOR_STATIC:
+            //calibrationCamera.ymlのfeatures部分はなぜか二重かっこ内に記録されていた。これを記録しなければ良い。
             calibrationCamera.load("calibrationCamera.yml");
             camProjCalib.resetBoards();
             calibrationCamera.setupCandidateObjectPoints();
+            //投影するstatic blobパターン
             calibrationProjector.setStaticCandidateImagePoints();
             break;
         case PROJECTOR_DYNAMIC:
@@ -100,7 +113,6 @@ void ofApp::setState(CalibState state){
             break;
     }
     currState = state;
-    
     currStateString = getCurrentStateString();
     log() << "Set state : " << getCurrentStateString() << endl;
 }
@@ -165,6 +177,7 @@ void ofApp::update(){
     }
 }
 
+//前のフレームとの差分を取得し、ある閾値以上の場合（？）画像を更新
 bool ofApp::updateCamDiff(cv::Mat camMat) {
     
     Mat prevMat = toCv(previous);
@@ -188,22 +201,29 @@ void ofApp::processImageForCircleDetection(cv::Mat img){
     cv::threshold(processedImg, processedImg, circleDetectionThreshold, 255, cv::THRESH_BINARY_INV);
 }
 
+//カメラキャリブレーション
 bool ofApp::calibrateCamera(cv::Mat img){
     
     CameraCalibration & calibrationCamera = camProjCalib.getCalibrationCamera();
     
+    //imgを取得、Boardが見つかった場合imagePointsをvectorに格納（ofxCv/libs/ofxCv/Calibration.cpp）
     bool bFound = calibrationCamera.add(img);
     if(bFound){
         
+        //log() << "Found board!" << calibrationCamera.size() << "," << numBoardsBeforeCleaning << "," << numBoardsFinalCamera << endl;
         log() << "Found board!" << endl;
         
         calibrationCamera.calibrate();
         
         if(calibrationCamera.size() >= numBoardsBeforeCleaning) {
             
-            log() << "Cleaning" << endl;
-            
+            //maxReprojErrorCamera以上のReprojErrorの場合、imagePointsから除外
             calibrationCamera.clean(maxReprojErrorCamera);
+            
+            //log() << "Cleaning : " << calibrationCamera.size() << maxReprojErrorCamera << endl;
+            
+            //printf("calibrationCamera.size():%d\n", calibrationCamera.size());
+            //printf("reprojectionerror():%f\n", calibrationCamera.getReprojectionError(calibrationCamera.size()-1));
             
             if(calibrationCamera.getReprojectionError(calibrationCamera.size()-1) > maxReprojErrorCamera) {
                 log() << "Board found, but reproj. error is too high, skipping" << endl;
@@ -212,23 +232,27 @@ bool ofApp::calibrateCamera(cv::Mat img){
         }
         
         if (calibrationCamera.size()>=numBoardsFinalCamera) {
-            
+
             calibrationCamera.save("calibrationCamera.yml");
             
             log() << "Camera calibration finished & saved to calibrationCamera.yml" << endl;
             
             setState(PROJECTOR_STATIC);
         }
-    } else log() << "Could not find board" << endl;
+    }
+    
+    //else log() << "Could not find board" << endl;
     
     return bFound;
 }
 
+//プロジェクタキャリブレーション（PROJECTOR_STATIC/DYNAMICで呼び出される）
 bool ofApp::calibrateProjector(cv::Mat img){
     
     CameraCalibration & calibrationCamera = camProjCalib.getCalibrationCamera();
     ProjectorCalibration & calibrationProjector = camProjCalib.getCalibrationProjector();
     
+    //得られた画像の二値化。draw関数内で画面に描画している。
     processImageForCircleDetection(img);
     
     if(camProjCalib.addProjected(img, processedImg)){
@@ -317,7 +341,7 @@ void ofApp::draw(){
             break;
     }
     
-    ofDrawBitmapString(getLog(20), 10, cam.height+20);
+    ofDrawBitmapString(getLog(20), 10, cam.getHeight()+20);
 }
 
 void ofApp::drawReprojErrors(string name, const ofxCv::Calibration & calib, int y){
